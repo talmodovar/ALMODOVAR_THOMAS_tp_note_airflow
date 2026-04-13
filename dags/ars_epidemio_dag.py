@@ -173,11 +173,62 @@ with DAG(
             provide_context=True,
         )
 
-    # 5. Groupe Persistance Opérationnelle
-    # Note : La persistance est déjà gérée dans les scripts pour l'idempotence, 
-    # mais on garde le groupe pour la conformité architecturale.
     def inserer_donnees_postgres(**context) -> None:
-        logger.info("Données opérationnelles déjà persistées par les scripts Docker.")
+        """Lit les fichiers JSON (bruts et calculés) et les insère dans Postgres."""
+        ti = context["task_instance"]
+        raw_json_path = ti.xcom_pull(task_ids="collecte.collecter_donnees_sursaud")
+        indicators_json_path = ti.xcom_pull(task_ids="traitement.calculer_indicateurs_epidemiques")
+        
+        pg_hook = PostgresHook(postgres_conn_id="postgres_ars")
+        
+        # 1. Insertion des données hebdomadaires (brutes)
+        if raw_json_path and os.path.exists(raw_json_path):
+            with open(raw_json_path, "r", encoding="utf-8") as f:
+                raw_data = json.load(f)
+            
+            semaine = raw_data.get("semaine")
+            for syndrome, m in raw_data.get("syndromes", {}).items():
+                sql = """
+                    INSERT INTO donnees_hebdomadaires 
+                    (semaine, syndrome, valeur_ias, seuil_min_saison, seuil_max_saison, nb_jours_donnees)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (semaine, syndrome) DO UPDATE SET
+                    valeur_ias = EXCLUDED.valeur_ias,
+                    seuil_min_saison = EXCLUDED.seuil_min_saison,
+                    seuil_max_saison = EXCLUDED.seuil_max_saison,
+                    nb_jours_donnees = EXCLUDED.nb_jours_donnees,
+                    updated_at = CURRENT_TIMESTAMP;
+                """
+                params = (semaine, syndrome, m.get("valeur_ias"), m.get("seuil_min"), m.get("seuil_max"), m.get("nb_jours"))
+                pg_hook.run(sql, parameters=params)
+            logger.info(f"Données hebdomadaires insérées dépuis {raw_json_path}")
+
+        # 2. Insertion des indicateurs épidémiques (calculés)
+        if indicators_json_path and os.path.exists(indicators_json_path):
+            with open(indicators_json_path, "r", encoding="utf-8") as f:
+                indicators = json.load(f)
+            
+            for ind in indicators:
+                sql = """
+                    INSERT INTO indicateurs_epidemiques 
+                    (semaine, syndrome, valeur_ias, z_score, r0_estime, nb_saisons_reference, statut)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (semaine, syndrome) DO UPDATE SET
+                    valeur_ias = EXCLUDED.valeur_ias,
+                    z_score = EXCLUDED.z_score,
+                    r0_estime = EXCLUDED.r0_estime,
+                    nb_saisons_reference = EXCLUDED.nb_saisons_reference,
+                    statut = EXCLUDED.statut,
+                    updated_at = CURRENT_TIMESTAMP;
+                """
+                # Note: taux_incidence dans le JSON correspond à valeur_ias dans la table
+                params = (
+                    ind.get("semaine"), ind.get("syndrome"), ind.get("taux_incidence"),
+                    ind.get("z_score"), ind.get("r0_estime"), ind.get("nb_annees_reference"),
+                    ind.get("statut")
+                )
+                pg_hook.run(sql, parameters=params)
+            logger.info(f"Indicateurs épidémiques insérés depuis {indicators_json_path}")
 
     with TaskGroup("persistance_operationnelle") as tg_persistance_op:
         inserer = PythonOperator(task_id="inserer_donnees_postgres", python_callable=inserer_donnees_postgres)
