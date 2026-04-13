@@ -34,7 +34,7 @@ BDD :  PostgreSQL
 ## Difficultés rencontrées et solutions
 Ajustement des retries car trop long 1 retry avec un waiting de 30sec
 
-### LOG collecter donnéesursaud : PROBLEME DE DROITS
+### LOG collecter donnéesursaud : PROBLEME DE DROITS (je sais pas comment faire ...)
 PermissionError: [Errno 13] Permission denied: '/data/ars/raw'
 [2026-04-13, 15:22:14 UTC] {taskinstance.py:1138} INFO - Marking task as UP_FOR_RETRY. dag_id=ars_epidemio_dag, task_id=collecte.collecter_donnees_sursaud, execution_date=20240122T060000, start_date=20260413T152212, end_date=20260413T152214
 [2026-04-13, 15:22:14 UTC] {standard_task_runner.py:107} ERROR - Failed to execute job 16 for task collecte.collecter_donnees_sursaud ([Errno 13] Permission denied: '/data/ars/raw'; 1068)
