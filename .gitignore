@@ -1,0 +1,14 @@
+# Airflow
+logs/
+plugins/
+*.pyc
+__pycache__/
+
+# Project specific
+output/
+ars-data/
+.env
+
+# Others
+.DS_Store
+*.swp
